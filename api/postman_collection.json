@@ -1,0 +1,462 @@
+{
+  "info": {
+    "_postman_id": "3f7c1b40-8d2e-4a6f-9c11-7a2b5e0d4c31",
+    "name": "GIRISH OPD — Hospital Appointment Booking API",
+    "description": "Oracle APEX workspace NOV_2026_BATCH -> ORDS module girish.opd.api (base /girish/opd/v1/).\n\nRun folders top to bottom: the first requests create a patient and generate slots, later requests reuse the ids saved into collection variables.\n\nConcurrency proof: send '07 Book slot' in two parallel runs on a slot with max_capacity = 1. One returns 201, the other 409 'Slot is fully booked'.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 Setup & master data",
+      "item": [
+        {
+          "name": "01 Ping (health check)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('database answers', () => pm.expect(pm.response.json()).to.have.property('status', 'ok'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/ping"
+          }
+        },
+        {
+          "name": "02 Departments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('items array present', () => pm.expect(j).to.have.property('items'));",
+                  "pm.test('at least one department', () => pm.expect(j.items.length).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/departments/"
+          }
+        },
+        {
+          "name": "03 Doctors (filter by name)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('items array present', () => pm.expect(j).to.have.property('items'));",
+                  "if (j.items && j.items.length) { pm.collectionVariables.set('doctor_id', j.items[0].doctor_id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/doctors/?q=Dr"
+          }
+        },
+        {
+          "name": "03a Create department",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created (409 on re-run)', () => pm.response.to.have.status([201, 409]));",
+                  "const j = pm.response.json();",
+                  "if (j.dept_id) { pm.collectionVariables.set('dept_id', j.dept_id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dept_code\": \"CARD\",\n  \"dept_name\": \"Cardiology\",\n  \"floor_no\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/admin/departments/"
+          }
+        },
+        {
+          "name": "03b Create doctor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created (409 on re-run)', () => pm.response.to.have.status([201, 409]));",
+                  "const j = pm.response.json();",
+                  "if (j.doctor_id) { pm.collectionVariables.set('doctor_id', j.doctor_id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dept_code\": \"CARD\",\n  \"emp_code\": \"EMP-1001\",\n  \"full_name\": \"Dr. Ananya Sharma\",\n  \"qualification\": \"MD DM Cardiology\",\n  \"email\": \"ananya.sharma@opd.local\",\n  \"phone\": \"9845010001\",\n  \"room_no\": \"C-201\",\n  \"consult_fee\": 800,\n  \"languages\": \"English,Hindi,Kannada\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/admin/doctors/"
+          }
+        },
+        {
+          "name": "03c Create slot template (Mon-Fri)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('5 weekday templates', () => pm.expect(j.templates_created).to.eql(5));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"doctor_id\": {{doctor_id}},\n  \"all_weekdays\": true,\n  \"start_time\": \"09:00\",\n  \"end_time\": \"11:00\",\n  \"slot_minutes\": 15,\n  \"max_patients\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/admin/templates/"
+          }
+        },
+        {
+          "name": "04 Create patient",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created (or 409 on re-run)', () => pm.response.to.have.status([201, 409]));",
+                  "const j = pm.response.json();",
+                  "if (j.patient_id) { pm.collectionVariables.set('patient_id', j.patient_id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uhid\": \"UHID-1001\",\n  \"full_name\": \"Ravi Test\",\n  \"gender\": \"M\",\n  \"phone\": \"9876500001\",\n  \"email\": \"ravi.test@example.com\",\n  \"blood_group\": \"O+\",\n  \"dob\": \"1990-05-14\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/patients/"
+          }
+        },
+        {
+          "name": "05 Generate slots (templates -> dated slots)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "console.log('slots_created =', j.slots_created);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"from_date\": \"2026-11-09\",\n  \"to_date\": \"2026-11-22\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/admin/slots/generate"
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 Booking flow",
+      "item": [
+        {
+          "name": "06 Availability (today, all doctors)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "const it = (j.items || [])[0];",
+                  "pm.test('items array present', () => pm.expect(j).to.have.property('items'));",
+                  "if (it) { pm.collectionVariables.set('slot_id', it.slot_id); pm.collectionVariables.set('doctor_id', it.doctor_id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/availability/"
+          }
+        },
+        {
+          "name": "07 Book slot (hold 5 min)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created, or 409 when sold out', () => pm.response.to.have.status([201, 409]));",
+                  "const j = pm.response.json();",
+                  "if (j.reference) { pm.collectionVariables.set('reference', j.reference); }",
+                  "if (pm.response.code === 409) { console.log('EXPECTED CONFLICT:', j.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slot_id\": {{slot_id}},\n  \"patient_id\": {{patient_id}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/appointments/"
+          }
+        },
+        {
+          "name": "08 Confirm booking (+ payment)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK, or 409 when the hold expired', () => pm.response.to.have.status([200, 409]));",
+                  "const j = pm.response.json();",
+                  "pm.test('has a response status', () => pm.expect(j).to.have.property('status'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"{{reference}}\",\n  \"payment_mode\": \"UPI\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/appointments/confirm"
+          }
+        },
+        {
+          "name": "09 Get appointment by reference",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('doctor name present', () => pm.expect(j).to.have.property('doctor_name'));",
+                  "pm.test('room number present', () => pm.expect(j).to.have.property('room_no'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/appointments/{{reference}}"
+          }
+        },
+        {
+          "name": "10 Admin appointment list",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('items array present', () => pm.expect(j).to.have.property('items'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/admin/appointments/"
+          }
+        },
+        {
+          "name": "11 Cancel appointment (rule-based refund)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK, 400 window closed or 409 not cancellable', () => pm.response.to.have.status([200, 400, 409]));",
+                  "const j = pm.response.json();",
+                  "pm.test('has a response status', () => pm.expect(j).to.have.property('status'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"{{reference}}\",\n  \"reason\": \"Patient unwell\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/appointments/cancel"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Negative tests (expected failures)",
+      "item": [
+        {
+          "name": "12 Invalid reference -> 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/appointments/OPD-000000-99999"
+          }
+        },
+        {
+          "name": "13 Book a missing slot -> 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slot_id\": 999999,\n  \"patient_id\": {{patient_id}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/appointments/"
+          }
+        },
+        {
+          "name": "14 Bad gender -> 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 or 409 (duplicate)', () => pm.response.to.have.status([400, 409]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uhid\": \"UHID-BAD-01\",\n  \"full_name\": \"Bad Gender\",\n  \"gender\": \"X\",\n  \"phone\": \"9876500099\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/patients/"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://YOUR-ADB-HOST/ords/nov_2026_batch/girish/opd/v1"
+    },
+    { "key": "dept_id", "value": "1" },
+    { "key": "patient_id", "value": "1" },
+    { "key": "slot_id", "value": "1" },
+    { "key": "doctor_id", "value": "1" },
+    { "key": "reference", "value": "OPD-202611-00001" }
+  ]
+}
